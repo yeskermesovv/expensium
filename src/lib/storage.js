@@ -26,8 +26,18 @@ function write(key, value) {
   }
 }
 
-export const loadEntries = () => read(ENTRIES_KEY, [])
+// Записям нужна отметка правки: по ней синхронизация решает, чья версия свежее.
+// У записей, созданных до появления облака, её нет — проставляем при чтении.
+export const loadEntries = () =>
+  read(ENTRIES_KEY, []).map((e) => ({ ...e, updatedAt: e.updatedAt ?? e.createdAt ?? e.date }))
+
 export const saveEntries = (entries) => write(ENTRIES_KEY, entries)
+
+/** Отмечает запись изменённой прямо сейчас. */
+export const touch = (entry) => ({ ...entry, updatedAt: new Date().toISOString() })
+
+/** Живые записи: удалённые остаются как надгробия, чтобы удаление доехало. */
+export const alive = (entries) => entries.filter((e) => !e.deleted)
 export const loadSettings = () => ({ ...DEFAULT_SETTINGS, ...read(SETTINGS_KEY, {}) })
 export const saveSettings = (settings) => write(SETTINGS_KEY, settings)
 

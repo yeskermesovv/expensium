@@ -6,9 +6,11 @@ import Stats from './components/Stats.jsx'
 import { useSpeech } from './hooks/useSpeech.js'
 import { parseSpeech, CURRENCIES } from './lib/parse.js'
 import {
-  loadEntries, saveEntries, loadSettings, saveSettings, newId, downloadCsv,
+  loadEntries, saveEntries, loadSettings, saveSettings, newId, downloadCsv, touch, alive,
 } from './lib/storage.js'
 import { formatMoney } from './lib/format.js'
+import { useCloud } from './hooks/useCloud.js'
+import CloudPanel from './components/CloudPanel.jsx'
 
 const PERIODS = [
   { id: 'day', title: 'День' },
@@ -58,7 +60,8 @@ export default function App() {
     const parsed = parseSpeech(text, { defaultCurrency: settings.currency, lang: settings.lang })
     if (!parsed.length) return
     setHeard(text.trim())
-    const created = parsed.map((p) => ({ ...p, id: newId(), createdAt: new Date().toISOString() }))
+    const now = new Date().toISOString()
+    const created = parsed.map((p) => ({ ...p, id: newId(), createdAt: now, updatedAt: now }))
     setEntries((prev) => [...created, ...prev])
 
     const needsAmount = created.find((e) => e.amount === null)
@@ -71,29 +74,48 @@ export default function App() {
     const label = created.length > 1
       ? `Записал ${created.length} траты на ${formatMoney(total, created[0].currency)}`
       : `Записал ${formatMoney(created[0].amount, created[0].currency)} · ${created[0].title || ''}`
-    flash(label, () => setEntries((prev) => prev.filter((e) => !created.some((c) => c.id === e.id))))
+    // Отмена помечает записи удалёнными, а не выкидывает: иначе удаление
+    // не доедет до других устройств
+    flash(label, () =>
+      setEntries((prev) =>
+        prev.map((e) => (created.some((c) => c.id === e.id) ? touch({ ...e, deleted: true }) : e)),
+      ),
+    )
   }, [settings.currency, settings.lang, flash])
 
   const speech = useSpeech({ lang: settings.lang, onResult: addFromText })
 
   const visible = useMemo(() => {
     const from = periodStart(period)
-    return entries
+    return alive(entries)
       .filter((e) => new Date(e.date) >= from)
       .sort((a, b) => new Date(b.date) - new Date(a.date))
   }, [entries, period])
 
   const saveEntry = (updated) => {
-    setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)))
+    setEntries((prev) => prev.map((e) => (e.id === updated.id ? touch(updated) : e)))
     setEditing(null)
   }
 
+  const setDeleted = (id, deleted) =>
+    setEntries((prev) => prev.map((e) => (e.id === id ? touch({ ...e, deleted }) : e)))
+
   const deleteEntry = (id) => {
-    const removed = entries.find((e) => e.id === id)
-    setEntries((prev) => prev.filter((e) => e.id !== id))
+    setDeleted(id, true)
     setEditing(null)
-    if (removed) flash('Запись удалена', () => setEntries((prev) => [removed, ...prev]))
+    flash('Запись удалена', () => setDeleted(id, false))
   }
+
+  // Слитые с облаком записи кладём в состояние, только если они правда изменились:
+  // иначе новая ссылка на массив запускала бы синхронизацию по кругу
+  const applyMerged = useCallback((merged) => {
+    setEntries((prev) => {
+      const sign = (list) => list.map((e) => e.id + e.updatedAt).sort().join('|')
+      return sign(prev) === sign(merged) ? prev : merged
+    })
+  }, [])
+
+  const cloud = useCloud({ entries, onMerged: applyMerged })
 
   return (
     <div className="app">
@@ -119,6 +141,7 @@ export default function App() {
 
       {showSettings && (
         <section className="settings">
+          <CloudPanel cloud={cloud} onSync={cloud.syncNow} />
           <label className="field">
             <span>Валюта по умолчанию</span>
             <select
@@ -154,11 +177,14 @@ export default function App() {
             />
           </label>
           <div className="settings__actions">
-            <button className="btn btn--ghost" onClick={() => downloadCsv(entries)}>Выгрузить CSV</button>
+            <button className="btn btn--ghost" onClick={() => downloadCsv(alive(entries))}>
+              Выгрузить CSV
+            </button>
             <button
               className="btn btn--ghost btn--danger"
               onClick={() => {
-                if (confirm('Удалить все записи без возможности вернуть?')) setEntries([])
+                if (!confirm('Удалить все записи без возможности вернуть?')) return
+                setEntries((prev) => prev.map((e) => touch({ ...e, deleted: true })))
               }}
             >
               Очистить всё
