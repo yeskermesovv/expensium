@@ -7,10 +7,12 @@ import { useSpeech } from './hooks/useSpeech.js'
 import { parseSpeech, CURRENCIES } from './lib/parse.js'
 import {
   loadEntries, saveEntries, loadSettings, saveSettings, newId, downloadCsv, touch, alive,
+  tourSeen, markTourSeen,
 } from './lib/storage.js'
 import { formatMoney } from './lib/format.js'
 import { useCloud } from './hooks/useCloud.js'
 import CloudPanel from './components/CloudPanel.jsx'
+import Tutorial from './components/Tutorial.jsx'
 
 const PERIODS = [
   { id: 'day', title: 'День' },
@@ -44,10 +46,17 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [manual, setManual] = useState('')
   const [heard, setHeard] = useState(null)
+  // Тур показываем один раз новичку: если записей ещё нет и его не закрывали
+  const [showTutorial, setShowTutorial] = useState(() => !tourSeen() && entries.length === 0)
   const toastTimer = useRef(null)
 
   useEffect(() => saveEntries(entries), [entries])
   useEffect(() => saveSettings(settings), [settings])
+
+  const closeTutorial = useCallback(() => {
+    setShowTutorial(false)
+    markTourSeen()
+  }, [])
 
   const flash = useCallback((message, undo) => {
     clearTimeout(toastTimer.current)
@@ -177,6 +186,16 @@ export default function App() {
             />
           </label>
           <div className="settings__actions">
+            <button
+              className="btn btn--ghost"
+              onClick={() => {
+                // Панель настроек закрываем: она сдвигает интерфейс, на который показывает тур
+                setShowSettings(false)
+                setShowTutorial(true)
+              }}
+            >
+              Как это работает
+            </button>
             <button className="btn btn--ghost" onClick={() => downloadCsv(alive(entries))}>
               Выгрузить CSV
             </button>
@@ -270,6 +289,8 @@ export default function App() {
           onClose={() => setEditing(null)}
         />
       )}
+
+      {showTutorial && <Tutorial onClose={closeTutorial} />}
     </div>
   )
 }

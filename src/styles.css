@@ -467,3 +467,124 @@ button, input, select { font: inherit; color: inherit; }
 }
 
 .google-mark { width: 18px; height: 18px; flex: none; }
+
+/* Обучающий тур */
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+/* Затемнение рисует тень этого блока: дырка совпадает с элементом
+   до пикселя, а клики сквозь неё не проходят — шаг переключают кнопки */
+/* Позицию не анимируем: при появлении блока браузер тянул бы её
+   из левого верхнего угла, и подсветка прилетала бы через весь экран */
+.tour__hole {
+  position: fixed;
+  border-radius: 14px;
+  box-shadow: 0 0 0 4px var(--accent-soft), 0 0 0 9999px #000000cc;
+  pointer-events: none;
+  animation: tour-fade 0.18s ease-out;
+}
+
+@keyframes tour-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.tour__center {
+  position: fixed;
+  inset: 0;
+  background: #000000cc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.tour__tip {
+  position: fixed;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 16px 40px #0009;
+  animation: tour-in 0.18s ease-out;
+}
+
+.tour__tip--wide {
+  position: static;
+  width: 340px;
+  padding: 20px;
+}
+
+@keyframes tour-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.tour__title {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.tour__text {
+  margin: 0 0 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.tour__controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tour__dots {
+  display: flex;
+  gap: 5px;
+  flex: 1;
+  justify-content: center;
+}
+
+.tour__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.tour__dot--on { background: var(--accent); }
+
+.tour__skip {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 6px 0;
+}
+
+.tour__skip:hover { color: var(--text); }
+
+.tour__next {
+  padding: 9px 16px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tour__next:hover { filter: brightness(1.08); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tour__hole, .tour__tip { animation: none; }
+}
