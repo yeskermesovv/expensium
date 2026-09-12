@@ -4,7 +4,7 @@ import { CURRENCIES } from '../lib/parse.js'
 import { toLocalInput } from '../lib/format.js'
 
 /** Ручная правка записи: сумма, категория, дата. Открывается по тапу на запись. */
-export default function EntryEditor({ entry, onSave, onDelete, onClose }) {
+export default function EntryEditor({ entry, accounts, onSave, onDelete, onClose }) {
   const [draft, setDraft] = useState(entry)
 
   useEffect(() => setDraft(entry), [entry])
@@ -77,6 +77,18 @@ export default function EntryEditor({ entry, onSave, onDelete, onClose }) {
             ))}
           </div>
         </div>
+
+        {/* Счёт показываем, только когда их несколько: иначе поле лишнее */}
+        {accounts.length > 1 && (
+          <label className="field">
+            <span>Счёт</span>
+            <select value={draft.accountId} onChange={(e) => set({ accountId: e.target.value })}>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.title}</option>
+              ))}
+            </select>
+          </label>
+        )}
 
         <div className="field field--split">
           <label>

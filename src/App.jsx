@@ -6,13 +6,17 @@ import Stats from './components/Stats.jsx'
 import { useSpeech } from './hooks/useSpeech.js'
 import { parseSpeech, CURRENCIES } from './lib/parse.js'
 import {
-  loadEntries, saveEntries, loadSettings, saveSettings, newId, downloadCsv, touch, alive,
-  tourSeen, markTourSeen,
+  loadEntries, saveEntries, loadAccounts, saveAccounts, loadSettings, saveSettings,
+  newId, downloadCsv, touch, alive, tourSeen, markTourSeen,
 } from './lib/storage.js'
+import {
+  MAIN_ACCOUNT_ID, accountsOrDefault, accountOf, accountBalance, foreignTotals,
+} from './lib/accounts.js'
 import { formatMoney } from './lib/format.js'
 import { useCloud } from './hooks/useCloud.js'
 import CloudPanel from './components/CloudPanel.jsx'
 import Tutorial from './components/Tutorial.jsx'
+import AccountsPanel from './components/AccountsPanel.jsx'
 
 const PERIODS = [
   { id: 'day', title: 'День' },
@@ -39,6 +43,7 @@ function periodStart(period, now = new Date()) {
 
 export default function App() {
   const [entries, setEntries] = useState(loadEntries)
+  const [accounts, setAccounts] = useState(loadAccounts)
   const [settings, setSettings] = useState(loadSettings)
   const [period, setPeriod] = useState('month')
   const [editing, setEditing] = useState(null)
@@ -51,7 +56,19 @@ export default function App() {
   const toastTimer = useRef(null)
 
   useEffect(() => saveEntries(entries), [entries])
+  useEffect(() => saveAccounts(accounts), [accounts])
   useEffect(() => saveSettings(settings), [settings])
+
+  // Пока пользователь не завёл счета, он живёт на одном подразумеваемом:
+  // счетов в хранилище нет, а в интерфейсе счёт как бы есть
+  const accountList = useMemo(
+    () => accountsOrDefault(alive(accounts), settings.currency),
+    [accounts, settings.currency],
+  )
+  const account = useMemo(
+    () => accountOf(accountList, settings.activeAccountId),
+    [accountList, settings.activeAccountId],
+  )
 
   const closeTutorial = useCallback(() => {
     setShowTutorial(false)
@@ -66,11 +83,13 @@ export default function App() {
 
   // Общая точка входа: и для речи, и для текста, набранного руками.
   const addFromText = useCallback((text) => {
-    const parsed = parseSpeech(text, { defaultCurrency: settings.currency, lang: settings.lang })
+    const parsed = parseSpeech(text, { defaultCurrency: account.currency, lang: settings.lang })
     if (!parsed.length) return
     setHeard(text.trim())
     const now = new Date().toISOString()
-    const created = parsed.map((p) => ({ ...p, id: newId(), createdAt: now, updatedAt: now }))
+    const created = parsed.map((p) => ({
+      ...p, id: newId(), accountId: account.id, createdAt: now, updatedAt: now,
+    }))
     setEntries((prev) => [...created, ...prev])
 
     const needsAmount = created.find((e) => e.amount === null)
@@ -90,16 +109,23 @@ export default function App() {
         prev.map((e) => (created.some((c) => c.id === e.id) ? touch({ ...e, deleted: true }) : e)),
       ),
     )
-  }, [settings.currency, settings.lang, flash])
+  }, [account.id, account.currency, settings.lang, flash])
 
   const speech = useSpeech({ lang: settings.lang, onResult: addFromText })
 
+  // Записи активного счёта за всё время: остаток считается по ним, а не по периоду,
+  // иначе к сумме за день приплюсовался бы весь начальный остаток
+  const onAccount = useMemo(
+    () => alive(entries).filter((e) => e.accountId === account.id),
+    [entries, account.id],
+  )
+
   const visible = useMemo(() => {
     const from = periodStart(period)
-    return alive(entries)
+    return onAccount
       .filter((e) => new Date(e.date) >= from)
       .sort((a, b) => new Date(b.date) - new Date(a.date))
-  }, [entries, period])
+  }, [onAccount, period])
 
   const saveEntry = (updated) => {
     setEntries((prev) => prev.map((e) => (e.id === updated.id ? touch(updated) : e)))
@@ -115,16 +141,48 @@ export default function App() {
     flash('Запись удалена', () => setDeleted(id, false))
   }
 
+  // Правка счёта заодно создаёт его в хранилище: до первой правки основной счёт
+  // существует только в интерфейсе
+  const saveAccount = (updated) =>
+    setAccounts((prev) =>
+      prev.some((a) => a.id === updated.id)
+        ? prev.map((a) => (a.id === updated.id ? touch(updated) : a))
+        : [...prev, touch(updated)],
+    )
+
+  const addAccount = () => {
+    const created = touch({
+      id: newId(),
+      title: `Счёт ${accountList.length + 1}`,
+      currency: settings.currency,
+      openingBalance: 0,
+    })
+    // Основной счёт мог быть только подразумеваемым: сохраняем и его,
+    // иначе на другом устройстве записи сошлются на счёт без названия
+    setAccounts((prev) =>
+      prev.length ? [...prev, created] : [...accountList.map(touch), created],
+    )
+    setSettings((s) => ({ ...s, activeAccountId: created.id }))
+  }
+
+  const removeAccount = (id) => {
+    setAccounts((prev) => prev.map((a) => (a.id === id ? touch({ ...a, deleted: true }) : a)))
+    // Записи удалённого счёта переезжают на основной, чтобы не потеряться
+    setEntries((prev) =>
+      prev.map((e) => (e.accountId === id ? touch({ ...e, accountId: MAIN_ACCOUNT_ID }) : e)),
+    )
+    setSettings((s) => (s.activeAccountId === id ? { ...s, activeAccountId: MAIN_ACCOUNT_ID } : s))
+  }
+
   // Слитые с облаком записи кладём в состояние, только если они правда изменились:
   // иначе новая ссылка на массив запускала бы синхронизацию по кругу
-  const applyMerged = useCallback((merged) => {
-    setEntries((prev) => {
-      const sign = (list) => list.map((e) => e.id + e.updatedAt).sort().join('|')
-      return sign(prev) === sign(merged) ? prev : merged
-    })
+  const applyMerged = useCallback((mergedEntries, mergedAccounts) => {
+    const sign = (list) => list.map((e) => e.id + e.updatedAt).sort().join('|')
+    setEntries((prev) => (sign(prev) === sign(mergedEntries) ? prev : mergedEntries))
+    setAccounts((prev) => (sign(prev) === sign(mergedAccounts) ? prev : mergedAccounts))
   }, [])
 
-  const cloud = useCloud({ entries, onMerged: applyMerged })
+  const cloud = useCloud({ entries, accounts, onMerged: applyMerged })
 
   return (
     <div className="app">
@@ -135,6 +193,20 @@ export default function App() {
             ⚙
           </button>
         </div>
+        {accountList.length > 1 && (
+          <nav className="wallets">
+            {accountList.map((a) => (
+              <button
+                key={a.id}
+                className={`wallet ${a.id === account.id ? 'wallet--on' : ''}`}
+                onClick={() => setSettings((s) => ({ ...s, activeAccountId: a.id }))}
+              >
+                {a.title}
+              </button>
+            ))}
+          </nav>
+        )}
+
         <nav className="tabs">
           {PERIODS.map((p) => (
             <button
@@ -151,6 +223,15 @@ export default function App() {
       {showSettings && (
         <section className="settings">
           <CloudPanel cloud={cloud} onSync={cloud.syncNow} />
+
+          <AccountsPanel
+            accounts={accountList}
+            entries={alive(entries)}
+            onChange={saveAccount}
+            onAdd={addAccount}
+            onRemove={removeAccount}
+          />
+
           <label className="field">
             <span>Валюта по умолчанию</span>
             <select
@@ -196,7 +277,7 @@ export default function App() {
             >
               Как это работает
             </button>
-            <button className="btn btn--ghost" onClick={() => downloadCsv(alive(entries))}>
+            <button className="btn btn--ghost" onClick={() => downloadCsv(alive(entries), accountList)}>
               Выгрузить CSV
             </button>
             <button
@@ -215,7 +296,9 @@ export default function App() {
       <main className="content">
         <Stats
           entries={visible}
-          currency={settings.currency}
+          account={account}
+          balance={accountBalance(account, onAccount)}
+          foreign={foreignTotals(account, onAccount)}
           budget={settings.monthlyBudget}
           period={period}
         />
@@ -284,6 +367,7 @@ export default function App() {
       {editing && (
         <EntryEditor
           entry={editing}
+          accounts={accountList}
           onSave={saveEntry}
           onDelete={deleteEntry}
           onClose={() => setEditing(null)}

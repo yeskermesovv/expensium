@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase, isCloudConfigured, signInWithGoogle, signOut } from '../lib/supabase.js'
-import { syncEntries } from '../lib/sync.js'
+import { syncAll } from '../lib/sync.js'
 
 const syncKey = (userId) => `voice-expenses:synced-at:${userId}`
 const PULL_INTERVAL = 60_000
@@ -10,13 +10,15 @@ const PULL_INTERVAL = 60_000
  * Записи остаются в localStorage, поэтому без сети и без входа
  * приложение работает как обычно.
  */
-export function useCloud({ entries, onMerged }) {
+export function useCloud({ entries, accounts, onMerged }) {
   const [user, setUser] = useState(null)
   const [status, setStatus] = useState(isCloudConfigured ? 'idle' : 'off')
   const [error, setError] = useState(null)
 
   const entriesRef = useRef(entries)
   entriesRef.current = entries
+  const accountsRef = useRef(accounts)
+  accountsRef.current = accounts
   const lastSyncRef = useRef(null)
   const runningRef = useRef(false)
   const onMergedRef = useRef(onMerged)
@@ -42,13 +44,13 @@ export function useCloud({ entries, onMerged }) {
     setStatus('syncing')
     setError(null)
     try {
-      const result = await syncEntries(entriesRef.current, {
+      const result = await syncAll(entriesRef.current, accountsRef.current, {
         userId: user.id,
         lastSyncAt: lastSyncRef.current,
       })
       lastSyncRef.current = result.syncedAt
       localStorage.setItem(syncKey(user.id), result.syncedAt)
-      onMergedRef.current(result.entries)
+      onMergedRef.current(result.entries, result.accounts)
       setStatus('ok')
     } catch (e) {
       const offline = !navigator.onLine
@@ -67,11 +69,11 @@ export function useCloud({ entries, onMerged }) {
   // Появились несинхронизированные правки — отправляем их с небольшой паузой
   useEffect(() => {
     if (!user) return
-    const dirty = entries.some((e) => !lastSyncRef.current || e.updatedAt > lastSyncRef.current)
-    if (!dirty) return
+    const fresh = (e) => !lastSyncRef.current || e.updatedAt > lastSyncRef.current
+    if (!entries.some(fresh) && !accounts.some(fresh)) return
     const timer = setTimeout(syncNow, 1500)
     return () => clearTimeout(timer)
-  }, [entries, user, syncNow])
+  }, [entries, accounts, user, syncNow])
 
   // Забираем чужие правки: при входе, по таймеру, при возврате в окно и при появлении сети
   useEffect(() => {

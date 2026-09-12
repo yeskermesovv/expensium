@@ -2,12 +2,14 @@ import { categoryOf } from '../lib/categories.js'
 import { formatMoney } from '../lib/format.js'
 
 /** Итоги за выбранный период и разбивка по категориям. */
-export default function Stats({ entries, currency, budget, period }) {
-  const expenses = entries.filter((e) => e.type === 'expense' && e.amount)
-  const income = entries.filter((e) => e.type === 'income' && e.amount)
+export default function Stats({ entries, account, balance, foreign, budget, period }) {
+  const currency = account.currency
+  // Суммируем только свою валюту: сложить тенге с долларами нельзя,
+  // остальное уходит отдельной строкой под итогами
+  const own = entries.filter((e) => e.amount && e.currency === currency)
+  const expenses = own.filter((e) => e.type === 'expense')
   const spent = expenses.reduce((sum, e) => sum + e.amount, 0)
-  const earned = income.reduce((sum, e) => sum + e.amount, 0)
-  const balance = earned - spent
+  const earned = own.filter((e) => e.type === 'income').reduce((sum, e) => sum + e.amount, 0)
 
   const byCategory = new Map()
   for (const e of expenses) {
@@ -30,6 +32,7 @@ export default function Stats({ entries, currency, budget, period }) {
           <span className="total__value total__value--in">{formatMoney(earned, currency)}</span>
         </div>
         <div className="total">
+          {/* Остаток берётся за всё время, поэтому период его не меняет */}
           <span className="total__label">Остаток</span>
           <span className={`total__value ${balance > 0 ? 'total__value--in' : balance < 0 ? 'total__value--out' : ''}`}>
             {formatMoney(balance, currency)}
@@ -40,6 +43,13 @@ export default function Stats({ entries, currency, budget, period }) {
           <span className="total__value">{entries.length}</span>
         </div>
       </div>
+
+      {foreign.length > 0 && (
+        <p className="stats__foreign">
+          Ещё на счёте:{' '}
+          {foreign.map(([code, sum]) => formatMoney(sum, code)).join(', ')}
+        </p>
+      )}
 
       {budgetShare !== null && (
         <div className="budget">

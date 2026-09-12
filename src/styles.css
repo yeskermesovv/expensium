@@ -67,6 +67,33 @@ button, input, select { font: inherit; color: inherit; }
   font-size: 16px;
 }
 
+/* Переключатель счетов: появляется, только когда счёт не один */
+.wallets {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.wallets::-webkit-scrollbar { display: none; }
+
+.wallet {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.wallet--on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
 .tabs {
   display: flex;
   gap: 6px;
@@ -109,6 +136,41 @@ button, input, select { font: inherit; color: inherit; }
   flex-wrap: wrap;
 }
 
+/* Счета в настройках */
+.accounts { display: grid; gap: 8px; }
+.accounts__label { font-size: 12px; color: var(--muted); }
+
+.account {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.account--open { border-color: var(--accent); }
+
+.account__head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.account__title { flex: 1; }
+.account__sum { color: var(--muted); font-variant-numeric: tabular-nums; }
+.account__chevron { color: var(--muted); font-size: 11px; }
+
+.account__body {
+  display: grid;
+  gap: 12px;
+  padding: 0 12px 12px;
+}
+.account__body .btn--danger { margin-right: 0; justify-self: start; }
+
 /* Итоги */
 .content { padding: 0 16px; }
 
@@ -131,6 +193,12 @@ button, input, select { font: inherit; color: inherit; }
 .total__value { font-size: 19px; font-weight: 650; letter-spacing: -0.02em; }
 .total__value--in { color: var(--green); }
 .total__value--out { color: var(--red); }
+
+.stats__foreign {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
 
 .budget { margin-top: 14px; }
 .budget__bar {

@@ -1,6 +1,16 @@
 import { categoryOf } from '../lib/categories.js'
 import { formatDay, formatMoney, formatTime, dayKey } from '../lib/format.js'
 
+/** Итог дня считаем по каждой валюте отдельно: складывать их нельзя. */
+function spentByCurrency(day) {
+  const totals = new Map()
+  for (const e of day) {
+    if (e.type !== 'expense' || !e.amount) continue
+    totals.set(e.currency, (totals.get(e.currency) || 0) + e.amount)
+  }
+  return [...totals.entries()]
+}
+
 function groupByDay(entries) {
   const groups = new Map()
   for (const entry of entries) {
@@ -26,14 +36,12 @@ export default function EntryList({ entries, onEdit, onDelete }) {
   return (
     <div className="list">
       {days.map((day) => {
-        const spent = day
-          .filter((e) => e.type === 'expense' && e.amount)
-          .reduce((sum, e) => sum + e.amount, 0)
+        const spent = spentByCurrency(day)
         return (
           <section key={dayKey(day[0].date)} className="day">
             <header className="day__head">
               <h3>{formatDay(day[0].date)}</h3>
-              <span>{formatMoney(spent, day[0].currency)}</span>
+              <span>{spent.map(([code, sum]) => formatMoney(sum, code)).join(' · ')}</span>
             </header>
             {day.map((entry) => {
               const cat = categoryOf(entry.categoryId)
