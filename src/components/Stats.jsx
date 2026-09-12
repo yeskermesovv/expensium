@@ -7,6 +7,7 @@ export default function Stats({ entries, currency, budget, period }) {
   const income = entries.filter((e) => e.type === 'income' && e.amount)
   const spent = expenses.reduce((sum, e) => sum + e.amount, 0)
   const earned = income.reduce((sum, e) => sum + e.amount, 0)
+  const balance = earned - spent
 
   const byCategory = new Map()
   for (const e of expenses) {
@@ -27,6 +28,12 @@ export default function Stats({ entries, currency, budget, period }) {
         <div className="total">
           <span className="total__label">Получено</span>
           <span className="total__value total__value--in">{formatMoney(earned, currency)}</span>
+        </div>
+        <div className="total">
+          <span className="total__label">Остаток</span>
+          <span className={`total__value ${balance > 0 ? 'total__value--in' : balance < 0 ? 'total__value--out' : ''}`}>
+            {formatMoney(balance, currency)}
+          </span>
         </div>
         <div className="total">
           <span className="total__label">Записей</span>

@@ -122,14 +122,15 @@ button, input, select { font: inherit; color: inherit; }
 
 .stats__totals {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px 8px;
 }
 
 .total { display: flex; flex-direction: column; gap: 2px; }
 .total__label { color: var(--muted); font-size: 12px; }
 .total__value { font-size: 19px; font-weight: 650; letter-spacing: -0.02em; }
 .total__value--in { color: var(--green); }
+.total__value--out { color: var(--red); }
 
 .budget { margin-top: 14px; }
 .budget__bar {
