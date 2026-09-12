@@ -6,6 +6,7 @@ const ENTRIES_KEY = 'voice-expenses:entries:v1'
 const ACCOUNTS_KEY = 'voice-expenses:accounts:v1'
 const SETTINGS_KEY = 'voice-expenses:settings:v1'
 const TOUR_KEY = 'voice-expenses:tour:v1'
+const NEWS_KEY = 'voice-expenses:news:v1'
 
 export const DEFAULT_SETTINGS = {
   currency: 'KZT',
@@ -64,6 +65,10 @@ export const saveSettings = (settings) => write(SETTINGS_KEY, settings)
 /** Обучающий тур показывается новичку один раз, дальше только по кнопке в настройках. */
 export const tourSeen = () => read(TOUR_KEY, false) === true
 export const markTourSeen = () => write(TOUR_KEY, true)
+
+/** Идентификатор последней прочитанной заметки «что нового». */
+export const newsSeen = () => read(NEWS_KEY, null)
+export const markNewsSeen = (id) => write(NEWS_KEY, id)
 
 export function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)

@@ -7,8 +7,9 @@ import { useSpeech } from './hooks/useSpeech.js'
 import { parseSpeech, CURRENCIES } from './lib/parse.js'
 import {
   loadEntries, saveEntries, loadAccounts, saveAccounts, loadSettings, saveSettings,
-  newId, downloadCsv, touch, alive, tourSeen, markTourSeen,
+  newId, downloadCsv, touch, alive, tourSeen, markTourSeen, newsSeen, markNewsSeen,
 } from './lib/storage.js'
+import { LATEST_NEWS } from './lib/news.js'
 import {
   MAIN_ACCOUNT_ID, accountsOrDefault, accountOf, accountBalance, foreignTotals,
 } from './lib/accounts.js'
@@ -17,6 +18,7 @@ import { useCloud } from './hooks/useCloud.js'
 import CloudPanel from './components/CloudPanel.jsx'
 import Tutorial from './components/Tutorial.jsx'
 import AccountsPanel from './components/AccountsPanel.jsx'
+import NewsBanner from './components/NewsBanner.jsx'
 
 const PERIODS = [
   { id: 'day', title: 'День' },
@@ -53,6 +55,16 @@ export default function App() {
   const [heard, setHeard] = useState(null)
   // Тур показываем один раз новичку: если записей ещё нет и его не закрывали
   const [showTutorial, setShowTutorial] = useState(() => !tourSeen() && entries.length === 0)
+  // Заметка о новом нужна тем, кто уже пользуется приложением. Новичку про неё
+  // рассказывать нечего: для него ново всё, и об этом говорит тур
+  const [news, setNews] = useState(() => {
+    if (newsSeen() === LATEST_NEWS.id) return null
+    if (!entries.length) {
+      markNewsSeen(LATEST_NEWS.id)
+      return null
+    }
+    return LATEST_NEWS
+  })
   const toastTimer = useRef(null)
 
   useEffect(() => saveEntries(entries), [entries])
@@ -73,6 +85,11 @@ export default function App() {
   const closeTutorial = useCallback(() => {
     setShowTutorial(false)
     markTourSeen()
+  }, [])
+
+  const closeNews = useCallback(() => {
+    setNews(null)
+    markNewsSeen(LATEST_NEWS.id)
   }, [])
 
   const flash = useCallback((message, undo) => {
@@ -294,6 +311,17 @@ export default function App() {
       )}
 
       <main className="content">
+        {news && (
+          <NewsBanner
+            news={news}
+            onClose={closeNews}
+            onAction={() => {
+              closeNews()
+              setShowSettings(true)
+            }}
+          />
+        )}
+
         <Stats
           entries={visible}
           account={account}
