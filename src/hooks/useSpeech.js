@@ -5,7 +5,9 @@ const SpeechRecognition =
   (window.SpeechRecognition || window.webkitSpeechRecognition)
 
 /**
- * Диктофон на Web Speech API: распознаёт речь прямо в браузере, без сервера.
+ * Диктофон на Web Speech API. Само распознавание идёт не на устройстве:
+ * браузер отправляет звук на серверы Google или Apple, поэтому без сети
+ * оно отваливается с ошибкой network. Остальное приложение работает офлайн.
  * onResult вызывается с окончательной фразой.
  */
 export function useSpeech({ lang = 'ru-RU', onResult } = {}) {
