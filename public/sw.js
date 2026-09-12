@@ -33,7 +33,12 @@ const isDocument = (request) =>
 
 self.addEventListener('fetch', (event) => {
   const { request } = event
-  if (request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return
+  const url = new URL(request.url)
+  if (request.method !== 'GET' || url.origin !== self.location.origin) return
+
+  // Проверка обновления спрашивает страницу с меткой nocache: такие запросы
+  // отдаём браузеру как есть, иначе кэш вернул бы ту же версию, что уже открыта
+  if (url.searchParams.has('nocache')) return
 
   if (isDocument(request)) {
     event.respondWith(

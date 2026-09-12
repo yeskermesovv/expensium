@@ -18,7 +18,8 @@ import { useCloud } from './hooks/useCloud.js'
 import CloudPanel from './components/CloudPanel.jsx'
 import Tutorial from './components/Tutorial.jsx'
 import AccountsPanel from './components/AccountsPanel.jsx'
-import NewsBanner from './components/NewsBanner.jsx'
+import Banner from './components/Banner.jsx'
+import { useUpdate } from './hooks/useUpdate.js'
 
 const PERIODS = [
   { id: 'day', title: 'День' },
@@ -91,6 +92,11 @@ export default function App() {
     setNews(null)
     markNewsSeen(LATEST_NEWS.id)
   }, [])
+
+  // Выложена новая версия. На главном экране iOS страница живёт неделями,
+  // поэтому предлагаем перезагрузку сами
+  const updateReady = useUpdate()
+  const [updateHidden, setUpdateHidden] = useState(false)
 
   const flash = useCallback((message, undo) => {
     clearTimeout(toastTimer.current)
@@ -311,10 +317,24 @@ export default function App() {
       )}
 
       <main className="content">
+        {updateReady && !updateHidden && (
+          <Banner
+            title="Появилось обновление"
+            text="Вышла новая версия приложения. Перезагрузите страницу, чтобы её открыть. Записи никуда не денутся."
+            action="Обновить"
+            dismiss="Позже"
+            onAction={() => location.reload()}
+            onDismiss={() => setUpdateHidden(true)}
+          />
+        )}
+
         {news && (
-          <NewsBanner
-            news={news}
-            onClose={closeNews}
+          <Banner
+            title={news.title}
+            text={news.text}
+            action={news.action}
+            dismiss="Понятно"
+            onDismiss={closeNews}
             onAction={() => {
               closeNews()
               setShowSettings(true)
