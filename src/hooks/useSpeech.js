@@ -4,50 +4,33 @@ const SpeechRecognition =
   typeof window !== 'undefined' &&
   (window.SpeechRecognition || window.webkitSpeechRecognition)
 
-const ERROR_MESSAGES = {
-  'not-allowed': 'Нет доступа к микрофону. Разрешите его в настройках браузера.',
-  'service-not-allowed': 'Браузер запретил распознавание речи.',
-  'audio-capture': 'Микрофон сейчас недоступен, попробуйте ещё раз.',
-  'no-speech': 'Ничего не расслышал, попробуйте ещё раз.',
-  network: 'Распознаванию нужен интернет.',
-  aborted: null,
-}
-
 /**
  * Диктофон на Web Speech API. Само распознавание идёт не на устройстве:
  * браузер отправляет звук на серверы Google или Apple, поэтому без сети
  * оно отваливается с ошибкой network. Остальное приложение работает офлайн.
  * onResult вызывается с окончательной фразой.
  *
- * Распознаватель создаётся заново на каждый запуск: на iOS после сворачивания
- * приложения система отбирает у старого экземпляра аудиосессию, и он больше
- * не слышит микрофон, пока страницу не перезагрузят.
+ * На iOS приложение с главного экрана, однажды включившее микрофон, после
+ * сворачивания его теряет: распознавание запускается, но звука не получает.
+ * В обычной вкладке Safari такого нет. Лечит только перезагрузка страницы,
+ * поэтому при возврате перезагружаемся сами. Если canReload ложно (человек
+ * что-то правит), ждём нажатия на микрофон.
  */
-export function useSpeech({ lang = 'ru-RU', onResult } = {}) {
+export function useSpeech({ lang = 'ru-RU', onResult, canReload = true } = {}) {
   const [listening, setListening] = useState(false)
   const [interim, setInterim] = useState('')
   const [error, setError] = useState(null)
   const recRef = useRef(null)
+  const startedRef = useRef(false)
+  // stale — микрофон включали, а потом приложение сворачивали
+  const staleRef = useRef(false)
   const onResultRef = useRef(onResult)
   onResultRef.current = onResult
+  const canReloadRef = useRef(canReload)
+  canReloadRef.current = canReload
 
-  // Глушим текущий распознаватель и отцепляем обработчики,
-  // чтобы его запоздалые события не сбили состояние следующего
-  const release = useCallback(() => {
-    const rec = recRef.current
-    if (!rec) return
-    recRef.current = null
-    rec.onresult = rec.onerror = rec.onend = null
-    try { rec.abort() } catch {}
-    setListening(false)
-    setInterim('')
-  }, [])
-
-  const start = useCallback(() => {
+  useEffect(() => {
     if (!SpeechRecognition) return
-    release()
-    setError(null)
-
     const rec = new SpeechRecognition()
     rec.lang = lang
     rec.continuous = true
@@ -68,30 +51,69 @@ export function useSpeech({ lang = 'ru-RU', onResult } = {}) {
     }
 
     rec.onerror = (event) => {
-      const message = ERROR_MESSAGES[event.error]
-      if (message !== null) {
+      const messages = {
+        'not-allowed': 'Нет доступа к микрофону. Разрешите его в настройках браузера.',
+        'service-not-allowed': 'Браузер запретил распознавание речи.',
+        'no-speech': 'Ничего не расслышал, попробуйте ещё раз.',
+        network: 'Распознаванию нужен интернет.',
+        aborted: null,
+      }
+      const message = messages[event.error]
+      // Пока пользователь сам не включил запись, молчим про ошибки микрофона
+      if (startedRef.current && message !== null) {
         setError(message || `Ошибка распознавания: ${event.error}`)
       }
+      setListening(false)
     }
 
     rec.onend = () => {
-      if (recRef.current === rec) recRef.current = null
       setListening(false)
       setInterim('')
     }
 
     recRef.current = rec
+    return () => {
+      rec.onresult = rec.onerror = rec.onend = null
+      try { rec.abort() } catch {}
+    }
+  }, [lang])
+
+  // Приложение свернули — останавливаем запись. Вернулись — перезагружаемся,
+  // если микрофон до этого включали: иначе он будет слушать тишину
+  useEffect(() => {
+    const onVisibility = () => {
+      // navigator.standalone есть только в iOS: true у приложения с главного экрана
+      if (navigator.standalone !== true) return
+      if (document.visibilityState === 'hidden') {
+        try { recRef.current?.abort() } catch {}
+        if (startedRef.current) staleRef.current = true
+      } else if (staleRef.current && canReloadRef.current) {
+        location.reload()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
+
+  const start = useCallback(() => {
+    if (staleRef.current) {
+      location.reload()
+      return
+    }
+    const rec = recRef.current
+    if (!rec) return
+    setError(null)
+    setInterim('')
     try {
       rec.start()
+      startedRef.current = true
       setListening(true)
     } catch {
-      release()
-      setError('Не удалось включить микрофон, попробуйте ещё раз.')
+      // start() на уже запущенном распознавании кидает ошибку — просто игнорируем
     }
-  }, [lang, release])
+  }, [])
 
   const stop = useCallback(() => {
-    // stop, а не abort: пусть успеет прийти последняя фраза, onend приберёт остальное
     try { recRef.current?.stop() } catch {}
     setListening(false)
   }, [])
@@ -100,21 +122,6 @@ export function useSpeech({ lang = 'ru-RU', onResult } = {}) {
     if (listening) stop()
     else start()
   }, [listening, start, stop])
-
-  // Приложение свернули — отпускаем микрофон сами, не дожидаясь, пока iOS
-  // оборвёт сессию и оставит распознаватель в подвешенном состоянии
-  useEffect(() => {
-    const onVisibility = () => {
-      if (document.visibilityState === 'hidden') release()
-    }
-    document.addEventListener('visibilitychange', onVisibility)
-    window.addEventListener('pagehide', release)
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibility)
-      window.removeEventListener('pagehide', release)
-      release()
-    }
-  }, [release])
 
   return { supported: Boolean(SpeechRecognition), listening, interim, error, start, stop, toggle, setError }
 }
