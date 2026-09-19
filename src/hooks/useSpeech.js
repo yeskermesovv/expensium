@@ -4,6 +4,13 @@ const SpeechRecognition =
   typeof window !== 'undefined' &&
   (window.SpeechRecognition || window.webkitSpeechRecognition)
 
+// Сколько ждём первых слов после возврата, прежде чем признать микрофон отключённым
+const WAKE_TIMEOUT = 6000
+
+const DEAD_MIC =
+  'Не слышу звука. Похоже, iOS отключил микрофон, когда приложение сворачивали: ' +
+  'смахните его в переключателе приложений и откройте заново.'
+
 /**
  * Диктофон на Web Speech API. Само распознавание идёт не на устройстве:
  * браузер отправляет звук на серверы Google или Apple, поэтому без сети
@@ -11,23 +18,34 @@ const SpeechRecognition =
  * onResult вызывается с окончательной фразой.
  *
  * На iOS приложение с главного экрана, однажды включившее микрофон, после
- * сворачивания его теряет: распознавание запускается, но звука не получает.
- * В обычной вкладке Safari такого нет. Лечит только перезагрузка страницы,
- * поэтому при возврате перезагружаемся сами. Если canReload ложно (человек
- * что-то правит), ждём нажатия на микрофон.
+ * сворачивания его теряет: распознавание запускается, но звука не получает,
+ * и не помогает даже перезагрузка страницы, только перезапуск приложения.
+ * В обычной вкладке Safari такого нет. Поэтому после возврата пробуем
+ * разбудить микрофон, запросив его через getUserMedia на время записи,
+ * а если слова так и не пошли — подсказываем перезапустить приложение.
  */
-export function useSpeech({ lang = 'ru-RU', onResult, canReload = true } = {}) {
+export function useSpeech({ lang = 'ru-RU', onResult } = {}) {
   const [listening, setListening] = useState(false)
   const [interim, setInterim] = useState('')
   const [error, setError] = useState(null)
   const recRef = useRef(null)
   const startedRef = useRef(false)
-  // stale — микрофон включали, а потом приложение сворачивали
+  // stale — микрофон включали, а потом приложение с главного экрана сворачивали
   const staleRef = useRef(false)
+  // Будильник: поток getUserMedia, таймер ожидания первых слов и номер попытки,
+  // по которому опоздавший поток понимает, что он уже не нужен
+  const streamRef = useRef(null)
+  const timerRef = useRef(null)
+  const wakeIdRef = useRef(0)
   const onResultRef = useRef(onResult)
   onResultRef.current = onResult
-  const canReloadRef = useRef(canReload)
-  canReloadRef.current = canReload
+
+  const unwake = useCallback(() => {
+    wakeIdRef.current++
+    clearTimeout(timerRef.current)
+    streamRef.current?.getTracks().forEach((track) => track.stop())
+    streamRef.current = null
+  }, [])
 
   useEffect(() => {
     if (!SpeechRecognition) return
@@ -37,6 +55,11 @@ export function useSpeech({ lang = 'ru-RU', onResult, canReload = true } = {}) {
     rec.interimResults = true
 
     rec.onresult = (event) => {
+      // Слова пошли — микрофон жив, ждать больше нечего
+      if (staleRef.current) {
+        staleRef.current = false
+        clearTimeout(timerRef.current)
+      }
       let live = ''
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i]
@@ -67,6 +90,7 @@ export function useSpeech({ lang = 'ru-RU', onResult, canReload = true } = {}) {
     }
 
     rec.onend = () => {
+      unwake()
       setListening(false)
       setInterim('')
     }
@@ -76,30 +100,44 @@ export function useSpeech({ lang = 'ru-RU', onResult, canReload = true } = {}) {
       rec.onresult = rec.onerror = rec.onend = null
       try { rec.abort() } catch {}
     }
-  }, [lang])
+  }, [lang, unwake])
 
-  // Приложение свернули — останавливаем запись. Вернулись — перезагружаемся,
-  // если микрофон до этого включали: иначе он будет слушать тишину
+  // Приложение с главного экрана свернули — останавливаем запись и помечаем,
+  // что микрофон после возврата придётся будить
   useEffect(() => {
     const onVisibility = () => {
       // navigator.standalone есть только в iOS: true у приложения с главного экрана
-      if (navigator.standalone !== true) return
-      if (document.visibilityState === 'hidden') {
-        try { recRef.current?.abort() } catch {}
-        if (startedRef.current) staleRef.current = true
-      } else if (staleRef.current && canReloadRef.current) {
-        location.reload()
-      }
+      if (document.visibilityState !== 'hidden' || navigator.standalone !== true) return
+      try { recRef.current?.abort() } catch {}
+      unwake()
+      if (startedRef.current) staleRef.current = true
     }
     document.addEventListener('visibilitychange', onVisibility)
-    return () => document.removeEventListener('visibilitychange', onVisibility)
-  }, [])
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      unwake()
+    }
+  }, [unwake])
+
+  // Держим микрофон открытым через getUserMedia, пока идёт запись: это может
+  // заново включить звук, который iOS отключил. Не пошли слова — подсказываем
+  const wake = useCallback(() => {
+    const id = wakeIdRef.current
+    navigator.mediaDevices?.getUserMedia({ audio: true })
+      .then((stream) => {
+        if (id === wakeIdRef.current) streamRef.current = stream
+        else stream.getTracks().forEach((track) => track.stop())
+      })
+      .catch(() => {})
+    timerRef.current = setTimeout(() => {
+      try { recRef.current?.abort() } catch {}
+      unwake()
+      setListening(false)
+      setError(DEAD_MIC)
+    }, WAKE_TIMEOUT)
+  }, [unwake])
 
   const start = useCallback(() => {
-    if (staleRef.current) {
-      location.reload()
-      return
-    }
     const rec = recRef.current
     if (!rec) return
     setError(null)
@@ -108,15 +146,17 @@ export function useSpeech({ lang = 'ru-RU', onResult, canReload = true } = {}) {
       rec.start()
       startedRef.current = true
       setListening(true)
+      if (staleRef.current) wake()
     } catch {
       // start() на уже запущенном распознавании кидает ошибку — просто игнорируем
     }
-  }, [])
+  }, [wake])
 
   const stop = useCallback(() => {
     try { recRef.current?.stop() } catch {}
+    unwake()
     setListening(false)
-  }, [])
+  }, [unwake])
 
   const toggle = useCallback(() => {
     if (listening) stop()

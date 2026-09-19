@@ -134,12 +134,7 @@ export default function App() {
     )
   }, [account.id, account.currency, settings.lang, flash])
 
-  // Сам перезагружаться при возврате (см. useSpeech) можно, только если ничего не потеряем
-  const speech = useSpeech({
-    lang: settings.lang,
-    onResult: addFromText,
-    canReload: !editing && !showSettings && !manual.trim(),
-  })
+  const speech = useSpeech({ lang: settings.lang, onResult: addFromText })
 
   // Записи активного счёта за всё время: остаток считается по ним, а не по периоду,
   // иначе к сумме за день приплюсовался бы весь начальный остаток
